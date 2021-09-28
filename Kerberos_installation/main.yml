@@ -1,0 +1,7 @@
+---
+- name: Installing Kerberos
+  hosts: inv
+  gather_facts: true
+  tasks:
+    - include_role:
+        name: install_kerberos

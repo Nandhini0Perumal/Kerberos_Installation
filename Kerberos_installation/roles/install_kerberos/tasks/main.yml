@@ -1,0 +1,139 @@
+---
+- name: executing command to create keytab file
+  win_command: “ ktpass -princ oracle/domain12.WEB@WEB -mapuser krb_domain12 -pass {{ password }} -crypto ALL -out C:\Windows\Temp\domain12.keytab -pType KRB5_NT_PRINCIPAL” 
+  vars:
+    ansible_become: yes
+    ansible_become_method: runas
+    ansible_become_user: '{{ scd_app_user }}'
+    ansible_become_password: '{{ scapp_password }}'
+  register: output
+  delegate_to: windows_server
+    
+- name: checking whether keytab file exists or not
+  win_stat: 
+    path: 'C:/Windows/Temp/domain12.keytab'    
+  register: stat_file
+  delegate_to: windows_server
+
+- debug:
+    msg: "domain12.keytab exists"
+  when: stat_file.stat.exists == True
+
+######################Copying servername.keytab from working server to linux machine#############################
+- name: copy v5srvtab file from windows to local
+  fetch:
+    src: C:/Windows/Temp/domain12.keytab
+    dest: /tmp/v5srvtab
+    flat: yes
+  delegate_to: windows_server
+
+- name: copy v5srvtab file from local to linux
+  copy:
+    src: /tmp/v5srvtab
+    dest: /etc/v5srvtab
+    owner: oracle
+    group: dba
+    mode: u=rw,g=r
+    remote_src: no
+  delegate_to: linux_server 
+
+- name: see the permissions of v5srvtab file
+  shell:
+    cmd: ls -ltr /etc/v5srvtab
+  register: v5srvtab_permissions
+  delegate_to: linux_server
+
+######################Copying oracle.keytab from working server to linux machine#############################
+
+- name: copy the oracle.keytab file from windows to local
+  fetch:
+    src: C:/windows/temp/oracle.keytab
+    dest: /tmp/oracle.keytab
+    flat: yes
+  delegate_to: windows_server
+
+- name: copy oracle.keytab file from local to linux
+  copy:
+    src: /tmp/oracle.keytab
+    dest: /etc/oracle.keytab
+    owner: oracle
+    group: dba
+    mode: u=rw,g=r,o=r
+    remote_src: no
+  delegate_to: linux_server 
+
+- name: see the permissions of oracle.keytab file
+  shell:
+    cmd: ls -ltr /etc/oracle.keytab
+  register: oracle_keytab_permissions
+  delegate_to: linux_server
+
+###################Copying the kerberos_renewal.sh  from working server to linux machine########################
+- name: copy the kerberos_renewal.sh file from windows to local
+  fetch:
+    src: C:/windows/temp/kerberos_renewal.sh
+    dest: /tmp/kerberos_renewal.sh
+    flat: yes
+  delegate_to: windows_server
+
+- name: copy kerberos_renewal.sh file from local to linux
+  copy:
+    src: /tmp/kerberos_renewal.sh
+    dest: /opt/apps/scripts/kerberos_renewal.sh 
+    owner: root
+    group: root
+    mode: u=rwx,g=rwx,o=rwx
+    remote_src: no
+  delegate_to: linux_server 
+
+- name: see the permissions of kerberos_renewal.sh file
+  shell:
+    cmd: ls -ltr /opt/apps/scripts/kerberos_renewal.sh 
+  register: kerberos_renewal_sh_permissions
+  delegate_to: linux_server
+###################Copying the kerberos_tgt_renewal.sh  from working server to linux machine######################
+- name: copy the kerberos_tgt_renewal.sh file from windows to local
+  fetch:
+    src: C:/windows/temp/kerberos_tgt_renewal.sh
+    dest: /tmp/kerberos_tgt_renewal.sh
+    flat: yes
+  delegate_to: windows_server
+
+- name: copy kerberos_tgt_renewal.sh file from local to linux
+  copy:
+    src: /tmp/kerberos_tgt_renewal.sh
+    dest: /u01/otppb/scripts/kerberos_tgt_renewal.sh  
+    owner: root
+    group: root
+    mode: u=rwx,g=rx,o=rx
+    remote_src: no
+  delegate_to: linux_server 
+
+- name: see the permissions of kerberos_tgt_renewal.sh file
+  shell:
+    cmd: ls -ltr /u01/otppb/scripts/kerberos_tgt_renewal.sh
+  register: kerberos_tgt_renewal_sh_permissions
+  delegate_to: linux_server
+###########################################################################Executing Klist and renewing the package
+- name: kinit
+  shell: kinit -k -t /etc/oracle.keytab {{ username  }}
+  register: renewed
+  
+- name: klist
+  shell: klist
+  register: check_the_renewed_status
+
+- debug: var=check_the_renewed_status
+
+##############################################Deleting all the files in localhost##########################################
+- name: delete local copy
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+  - '/tmp/v5srvtab'
+  - '/tmp/oracle.keytab'
+  - '/tmp/kerberos_renewal.sh'
+  - '/tmp/kerberos_tgt_renewal.sh'
+  delegate_to: localhost
+
